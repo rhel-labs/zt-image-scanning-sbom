@@ -20,7 +20,7 @@ SETUP_FILES=$TMPDIR/setup-files
 GRYPE_VERSION=v0.111.0
 curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | \
   sh -s -- -b /usr/local/bin ${GRYPE_VERSION}
-grype db update
+su -l rhel -c "grype db update"
 echo "Grype installed" >> /tmp/progress.log
 
 # Install syft
@@ -61,9 +61,9 @@ chmod -R a+rX /home/rhel/sample-app/.mvn/ /home/rhel/sample-app/src/
 chmod a+r /home/rhel/sample-app/pom.xml
 echo "Application files configured" >> /tmp/progress.log
 
-# Pull base images
-podman pull registry.access.redhat.com/hi/openjdk:21-builder
-podman pull registry.access.redhat.com/hi/openjdk:21-runtime
+# Pull base images into rhel's rootless store
+su -l rhel -c "podman pull registry.access.redhat.com/hi/openjdk:21-builder"
+su -l rhel -c "podman pull registry.access.redhat.com/hi/openjdk:21-runtime"
 echo "Base images pulled" >> /tmp/progress.log
 
 # Warm Maven cache inside the builder container
