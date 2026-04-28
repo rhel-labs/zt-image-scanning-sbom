@@ -1,28 +1,167 @@
-= Antora
+= SBOM Generation with Syft
 
-The `antora` key in `ui-config.yml` defines how the documentation site is built using Antora.
+.*Module Overview*
+[sidebar]
+--
+*Duration:* 6-8 minutes +
+*Learning Objectives:*
 
-[source,yaml]
+* Understand what a Software Bill of Materials (SBOM) is and why it matters
+* Generate human-readable package tables with Syft
+* Create a machine-readable SPDX-JSON SBOM for compliance
+* Query SBOM contents with `jq`
+--
+
+[[introduction]]
+== Introduction
+
+Vulnerability scanning tells you about known CVEs today, but software supply chain compliance also requires you to document *what* is in your images — now and in the future. A Software Bill of Materials (SBOM) is that inventory.
+
+SBOMs are essential for:
+
+* **Supply chain security** — know exactly what packages and libraries are in your images
+* **Compliance** — meet regulatory requirements like NIST SP 800-218, the EU Cyber Resilience Act, and Executive Order 14028
+* **Vulnerability management** — when a new CVE is disclosed, quickly identify which images are affected without re-scanning everything
+
+[[human-readable]]
+== Step 1: View a Human-Readable Package Table
+
+Syft can generate a quick summary in table format. Let's see what's in `rhhi-demo:v1`:
+
+[source,bash,role=execute]
 ----
-antora:
-  name: modules
-  dir: www
-  modules:
-    - name: module-01 
-      label: "Writing your lab"
-    - name: module-02
-      label: "Antora"
-    - name: module-03
-      label: "Tabs"
+syft rhhi-demo:v1 -o table
 ----
 
-=== Explanation
+.*Expected output (excerpt):*
+----
+NAME                          VERSION                  TYPE
+quarkus-rest                  3.32.2                   java-archive
+quarkus-rest-jackson          3.32.2                   java-archive
+jackson-databind              2.21.1                   java-archive
+jakarta.ws.rs-api             3.1.0                    java-archive
+netty-common                  4.1.130.Final            java-archive
+vertx-core                    4.5.25                   java-archive
+...
+java-21-openjdk-headless      1:21.0.10.0.7-2.1.hum1  rpm
+glibc                         2.42-10.hum1             rpm
+nss                           3.119.1-1.1.hum1         rpm
+----
 
-- `name`: The name of the documentation folder, here called `modules`.
-- `dir`: The directory where the documentation files will be located (`www`). 
-- `modules`: The list of modules that make up your lab.
+Notice that Syft identifies multiple package types in a single scan:
 
-Each module has:
+* `java-archive` packages — Quarkus runtime dependencies (Netty, Vert.x, Jackson, SmallRye, etc.)
+* `rpm` packages — OpenJDK and system libraries from the hardened base image
 
-- `name`: The file name within the `pages` directory.
-- `label`: A human-readable label for display in navigation.
+[[spdx-sbom]]
+== Step 2: Generate a Machine-Readable SPDX SBOM
+
+A table is useful for human review, but compliance workflows need machine-readable output. There are several standard SBOM formats; we'll use Software Package Data Exchange (SPDX), an ISO/IEC standard (ISO/IEC 5962:2021).
+
+Change to the scanning directory and generate the SBOM:
+
+[source,bash,role=execute]
+----
+cd ~/scanning
+----
+
+[source,bash,role=execute]
+----
+syft rhhi-demo:v1 -o spdx-json=rhhi-demo.spdx
+----
+
+.*Expected output:*
+----
+ ✔ Loaded image                                           rhhi-demo:v1
+ ✔ Parsed image  sha256:382ffe2fc7bc...
+ ✔ Cataloged contents   a40e8a453bfc...
+   ├── ✔ Packages                        [169 packages]
+   ├── ✔ Executables                     [161 executables]
+   ├── ✔ File digests                    [1,238 files]
+   └── ✔ File metadata                   [1,238 locations]
+----
+
+[[inspect-sbom]]
+== Step 3: Inspect the SBOM
+
+The SBOM is a JSON file. Use `jq` to query it:
+
+[source,bash,role=execute]
+----
+jq '.packages | length' rhhi-demo.spdx
+----
+
+.*Expected output:*
+----
+166
+----
+
+[NOTE]
+====
+The package count from `jq` may differ slightly from Syft's cataloged count because the SPDX format includes the image itself as a top-level package entry alongside its contents.
+====
+
+You can also explore individual package entries:
+
+[source,bash,role=execute]
+----
+jq '.packages[0]' rhhi-demo.spdx
+----
+
+Each package entry includes name, version, license, checksums, and supplier information — everything needed for compliance reporting.
+
+[[sbom-formats]]
+== SBOM Formats
+
+[NOTE]
+====
+**Supported SBOM formats in Syft:**
+
+* **SPDX-JSON** (`spdx-json`) — ISO/IEC 5962:2021, widely supported by compliance tools
+* **CycloneDX** (`cyclonedx-json`) — OWASP standard, popular in DevSecOps pipelines
+* **Table** (`table`) — human-readable, for quick review
+* **JSON** (`json`) — Syft's native format with additional metadata
+
+For compliance requirements, use `spdx-json` or `cyclonedx-json`. Both formats are accepted by tools like FOSSA, Dependency-Track, and grype.
+====
+
+[[cleanup]]
+== Step 4: Reset Working Directory
+
+[source,bash,role=execute]
+----
+cd ~
+----
+
+[[summary]]
+== Summary
+
+You've completed the Container Image Scanning and SBOMs lab.
+
+.*What You've Accomplished*
+
+* Enabled the rootless Podman socket for API-based scanning tools
+* Scanned `rhhi-demo:v1` with Grype — confirmed zero CVEs at ship time
+* Scanned `rhhi-demo:ubi` with Grype — observed real-world CVE exposure from build artifacts
+* Generated a human-readable package table with Syft
+* Created a machine-readable SPDX-JSON SBOM at `~/scanning/rhhi-demo.spdx`
+* Queried the SBOM with `jq` to count and inspect package entries
+
+.*Key Takeaways*
+
+**Security Benefits of Minimal Images:**
+
+* Zero or near-zero CVEs at ship time dramatically reduces remediation churn
+* Smaller attack surfaces (273 MB vs 623 MB) mean fewer components to audit and patch
+* Multi-stage builds separate build tools from runtime, eliminating an entire class of vulnerability
+
+**SBOMs Enable:**
+
+* Rapid impact assessment when new CVEs are disclosed
+* Regulatory compliance evidence for supply chain audits
+* Automated policy enforcement in CI/CD pipelines
+
+**Tool Integration:**
+
+* Both Grype and Syft integrate with CI/CD pipelines via their container images or binaries
+* Use them as security gates: fail builds when CVEs exceed a threshold or when SBOMs cannot be generated

@@ -1,39 +1,170 @@
-= Writing your lab
+= Vulnerability Scanning with Grype
 
-== Variables
+.*Module Overview*
+[sidebar]
+--
+*Duration:* 8-10 minutes +
+*Learning Objectives:*
 
-The `lab_name` var, known as an asciidoc attribute, is set in `site.yml` and can be used to set the lab_name (Example: {lab_name}) or title of your content.
-They are both free to change its value and if you prefer to use a different var name, you can change the value of `lab_name`, for example to `title` in `site.yml` and then reference it in your content as `\{site-title}` (Ex: {site-title}).
+* Enable the rootless Podman socket for API-based tools
+* Scan a hardened container image for CVEs using Grype
+* Compare vulnerability counts between a hardened image and a UBI-based image
+* Understand the security benefits of minimal base images
+--
 
-Example:
-[source,asciidoc]
+[[introduction]]
+== Introduction
+
+Building secure images is only the first step. In this module, you'll learn how to analyze the security posture of your container images using industry-standard tools.
+
+Two images are already pre-built and waiting for you:
+
+* `rhhi-demo:v1` — a multi-stage hardened image using Red Hat Hardened Images as the base, producing a minimal runtime container
+* `rhhi-demo:ubi` — a single-stage image built from standard UBI9, including build tools and their dependencies in the final image
+
+You'll use `grype` to scan both images for known CVEs and see firsthand why Red Hat's hardened, minimal approach dramatically reduces your security exposure compared to traditional base images.
+
+[[podman-socket]]
+== Step 1: Enable the Podman Socket
+
+Grype and Syft use the Podman API socket to find and inspect images. As a rootless user, you can enable this socket just for your session — you don't need system-level access.
+
+[source,bash,role=execute]
 ----
-{my_var}
+systemctl --user enable --now podman.socket
 ----
 
-Variable rendered:
+[NOTE]
+====
+This enables the socket for the current user session only. It does not require `sudo` or root privileges. This is a key feature of rootless Podman: the daemon socket runs entirely within your user namespace.
+====
 
-{my_var}
+[[verify-tools]]
+== Step 2: Verify the Scanning Tools
 
-== Inserting Images
+Both `grype` and `syft` are already installed. Let's confirm they're ready:
 
-To display an image in your Antora documentation, place the image file in the `assets/images/` folder of the module, then reference it using the `image::[]` macro
-
-=== Basic Syntax
-
-[source,asciidoc]
+[source,bash,role=execute]
 ----
-image::example-image.png[Example Image, width=100, height=100]
+grype version
 ----
 
-This will render the `example-image.png` image as it follows:
+[source,bash,role=execute]
+----
+syft version
+----
 
-image::example-image.png[Example Image, width=100, height=100]
+You should see version output for both tools. Now let's check the images:
 
-=== Understanding the Antora Configuration
+[source,bash,role=execute]
+----
+podman images rhhi-demo
+----
 
-This lab explains the purpose and structure of the YAML configuration used in an Antora-based documentation site.
+----
+REPOSITORY           TAG         IMAGE ID      CREATED        SIZE
+localhost/rhhi-demo  ubi         4d7953024356  2 minutes ago  623 MB
+localhost/rhhi-demo  v1          dc4d1b7ef08a  2 hours ago    273 MB
+----
 
-=== Basic Structure
+Notice the size difference: the hardened multi-stage image is roughly 56% smaller than the UBI single-stage image.
 
-The configuration is written in YAML `ui-config.yml` and includes two main sections: `antora` and `tabs`. Click next to know more.
+[[scan-hardened]]
+== Step 3: Scan the Hardened Image
+
+Use Grype to scan `rhhi-demo:v1` for known CVEs:
+
+[source,bash,role=execute]
+----
+grype rhhi-demo:v1 --by-cve
+----
+
+[NOTE]
+====
+The scan may take 1-2 minutes to complete. The `--by-cve` flag normalizes output to CVE identifiers instead of other data sources like GHSA, making it easier to cross-reference with other tools and databases.
+====
+
+.*Expected output:*
+----
+ ✔ Loaded image                                           rhhi-demo:v1
+ ✔ Parsed image sha256:dc4d1b7ef08a...
+ ✔ Cataloged contents  faa8ebd2c0eb...
+   ├── ✔ Packages                        [169 packages]
+   ├── ✔ File metadata                   [1,238 locations]
+   ├── ✔ Executables                     [161 executables]
+ ✔ Scanned for vulnerabilities     [0 vulnerability matches]
+   ├── by severity: 0 critical, 0 high, 0 medium, 0 low, 0 negligible
+   └── by status:   0 fixed, 0 not-fixed, 0 ignored
+No vulnerabilities found
+----
+
+Notice that `grype` examines not just RPM packages but also `java-archive` packages, binaries, and other file and metadata sources.
+
+[NOTE]
+====
+Hardened base images typically have **zero or near-zero CVEs** at ship time, so the scan should be clean. Results may vary slightly over time as new CVEs are discovered and disclosed against any layer's components.
+====
+
+[[scan-ubi]]
+== Step 4: Compare with the UBI Image
+
+Now scan the UBI-based version to see the difference:
+
+[source,bash,role=execute]
+----
+grype rhhi-demo:ubi --by-cve --only-fixed
+----
+
+.*Expected output (varies, but typically):*
+----
+ ✔ Loaded image                                           rhhi-demo:ubi
+ ✔ Parsed image  sha256:03dc3b506b2c...
+ ✔ Cataloged contents   be81f714bea3...
+   ├── ✔ Packages                        [991 packages]
+   ├── ✔ Executables                     [529 executables]
+   ├── ✔ File metadata                   [6,134 locations]
+ ✔ Scanned for vulnerabilities     [33 vulnerability matches]
+   ├── by severity: 2 critical, 34 high, 146 medium, 98 low, 1 negligible
+   └── by status:   33 fixed, 249 not-fixed, 249 ignored
+<output truncated>
+----
+
+Take note of the `Type` column in the full output. Most vulnerabilities are in `java-archive` packages pulled in as build dependencies. Because this image was built in a single stage — without separating build from runtime — all those build artifacts remain in the production image.
+
+[NOTE]
+====
+The `--only-fixed` flag shows only vulnerabilities that have available patches. This focuses attention on immediately actionable issues rather than `wontfix` items. Remove the flag to see the full vulnerability list including unfixed issues.
+====
+
+[IMPORTANT]
+====
+**Key Insight:**
+
+* **Hardened image** (`rhhi-demo:v1`): 0 CVEs at ship time
+* **UBI image** (`rhhi-demo:ubi`): 15-30+ CVEs (even in a recent build)
+
+The difference comes from unnecessary packages in the UBI image that aren't needed at runtime but still carry security vulnerabilities. Multi-stage builds using minimal runtime bases eliminate this entire class of exposure.
+====
+
+[[rh-sboms]]
+== Red Hat Published SBOMs
+
+[NOTE]
+====
+Red Hat publishes SBOMs for all Hardened Images, accessible via the image catalog and through cryptographic attestation. You'll explore how to access, sign, and verify SBOMs in the Image Signing lab.
+====
+
+[[summary]]
+== Summary
+
+In this module, you scanned two container images and observed the security difference between a hardened multi-stage image and a traditional UBI-based single-stage image.
+
+.*What You've Accomplished*
+
+* Enabled the rootless Podman socket for API-based tool access
+* Verified grype and syft installations
+* Scanned `rhhi-demo:v1` and confirmed zero CVEs
+* Scanned `rhhi-demo:ubi` and observed real-world CVE exposure
+* Understood why minimal runtime images reduce your attack surface
+
+Proceed to Module 2 to generate machine-readable SBOMs for compliance requirements.

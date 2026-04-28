@@ -5,13 +5,11 @@ antora:
   dir: www
   modules:
     - name: module-01
-      label: "Writing your lab"
-      solveButton: true
+      label: "Vulnerability Scanning"
+      solveButton: false
     - name: module-02
-      label: "Antora"
-      solveButton: true
-    - name: module-03
-      label: "Tabs"
+      label: "SBOMs with Syft"
+      solveButton: false
 
 tabs:
   - name: ">_ terminal"

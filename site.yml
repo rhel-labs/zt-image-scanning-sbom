@@ -1,6 +1,6 @@
 ---
 site:
-  title: "Your Labs Title"
+  title: Container Image Scanning and SBOMs
   url: https://github.com/rhpds/showroom_template_zero
   start_page: modules::module-01.adoc
 
