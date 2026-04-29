@@ -19,7 +19,8 @@ if ! command -v grype > /dev/null 2>&1; then
     exit 1
 fi
 
-if ! runuser -u rhel -- systemctl --user is-active podman.socket > /dev/null 2>&1; then
+RHEL_UID=$(id -u rhel)
+if ! test -S /run/user/${RHEL_UID}/podman/podman.sock; then
     echo "FAIL: podman.socket is not active for the rhel user" >> /tmp/progress.log
     echo "HINT: Run 'systemctl --user enable --now podman.socket' to enable it." >> /tmp/progress.log
     exit 1
