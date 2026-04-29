@@ -1,19 +1,19 @@
 #!/bin/sh
 echo "Validating module-01" >> /tmp/progress.log
 
-if ! runuser -u rhel -- podman image exists rhhi-demo:v1; then
+if ! runuser -u rhel -- podman image exists rhhi-demo:v1 2>/dev/null; then
     echo "FAIL: rhhi-demo:v1 image not found" >> /tmp/progress.log
     echo "HINT: Run 'podman images' to see available images. Contact lab support if images are missing." >> /tmp/progress.log
     exit 1
 fi
 
-if ! runuser -u rhel -- podman image exists rhhi-demo:ubi; then
+if ! runuser -u rhel -- podman image exists rhhi-demo:ubi 2>/dev/null; then
     echo "FAIL: rhhi-demo:ubi image not found" >> /tmp/progress.log
     echo "HINT: Run 'podman images' to see available images. Contact lab support if images are missing." >> /tmp/progress.log
     exit 1
 fi
 
-if ! command -v grype > /dev/null 2>&1; then
+if ! test -x /usr/local/bin/grype; then
     echo "FAIL: grype binary not found" >> /tmp/progress.log
     echo "HINT: grype should be pre-installed at /usr/local/bin/grype. Contact lab support." >> /tmp/progress.log
     exit 1
